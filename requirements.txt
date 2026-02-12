@@ -1,5 +1,5 @@
 gradio==6.5.1
-huggingface_hub==0.25.0
+huggingface-hub>=0.33.5
 numpy>=1.26.0
 scipy>=1.11.0
 pymupdf>=1.23.0
