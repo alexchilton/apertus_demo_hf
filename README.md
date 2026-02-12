@@ -1,8 +1,8 @@
 ---
 title: Swiss RAG Demo - Apertus
-emoji: 🇨🇭
+emoji: 🏔️
 colorFrom: red
-colorTo: white
+colorTo: gray
 sdk: gradio
 sdk_version: 6.5.1
 app_file: app.py
