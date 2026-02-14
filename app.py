@@ -55,7 +55,7 @@ OVERLAP_CHARS = OVERLAP_TOKENS * CHARS_PER_TOKEN
 TOP_K = 4
 
 # LLM parameters
-MAX_TOKENS = 2048
+MAX_TOKENS = 1024
 TEMPERATURE = 0.1
 
 # System prompt
@@ -273,7 +273,8 @@ class SwissRAG:
         # PublicAI client for LLM (OpenAI-compatible)
         self.llm_client = OpenAI(
             api_key=self.publicai_token,
-            base_url=PUBLICAI_BASE_URL
+            base_url=PUBLICAI_BASE_URL,
+            timeout=120.0  # 2 minutes - Apertus 8B can be slow on free tier
         )
         self.llm_model = LLM_MODEL
 
