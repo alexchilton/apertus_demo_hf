@@ -16,6 +16,7 @@ import numpy as np
 import requests
 from scipy.spatial.distance import cosine
 from huggingface_hub import InferenceClient
+from openai import OpenAI
 import fitz  # PyMuPDF
 
 # Configure logging
@@ -40,8 +41,8 @@ DOCUMENTS = [
 
 # Model configuration
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-LLM_MODEL = "swiss-ai/Apertus-8B-Instruct-2509"
-LLM_FALLBACK = "HuggingFaceH4/zephyr-7b-beta"
+LLM_MODEL = "swiss-ai/apertus-8b-instruct"   # PublicAI model name
+PUBLICAI_BASE_URL = "https://api.publicai.co/v1"
 
 # Chunking parameters
 CHARS_PER_TOKEN = 4
@@ -259,16 +260,23 @@ class RAGRetriever:
 
 class SwissRAG:
     """Main RAG application."""
-    
+
     def __init__(self):
         self.hf_token = os.environ.get("HF_TOKEN")
         if not self.hf_token:
             raise ValueError("HF_TOKEN environment variable not set")
-        
-        self.client = InferenceClient(token=self.hf_token)
+
+        self.publicai_token = os.environ.get("PUBLICAI_API_KEY")
+        if not self.publicai_token:
+            raise ValueError("PUBLICAI_API_KEY environment variable not set")
+
+        # PublicAI client for LLM (OpenAI-compatible)
+        self.llm_client = OpenAI(
+            api_key=self.publicai_token,
+            base_url=PUBLICAI_BASE_URL
+        )
         self.llm_model = LLM_MODEL
-        self.llm_fallback_used = False
-        
+
         # Initialize components
         self.doc_processor = DocumentProcessor()
         self.embedding_engine = EmbeddingEngine(self.hf_token)
@@ -302,15 +310,11 @@ class SwissRAG:
         """Get status message for UI."""
         if not self.retriever:
             return "⏳ Loading documents..."
-        
+
         total_chunks = len(self.retriever.chunks)
         num_docs = len([v for v in self.doc_stats.values() if v > 0])
-        
-        status = f"✅ Ready — {total_chunks} chunks loaded across {num_docs} documents"
-        if self.llm_fallback_used:
-            status += f" | Using fallback LLM: {LLM_FALLBACK}"
-        
-        return status
+
+        return f"✅ Ready — {total_chunks} chunks loaded across {num_docs} documents | LLM: {LLM_MODEL} via PublicAI"
     
     def get_loaded_docs_info(self) -> str:
         """Get information about loaded documents."""
@@ -368,51 +372,27 @@ Frage: {question}
 
 Bitte beantworte die Frage basierend auf dem obigen Kontext."""
         
-        # Call LLM
+        # Call LLM via PublicAI
         try:
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
             ]
-            
-            response = self.client.chat_completion(
-                messages=messages,
+
+            response = self.llm_client.chat.completions.create(
                 model=self.llm_model,
+                messages=messages,
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE
             )
-            
+
             answer = response.choices[0].message.content
-            
+            logger.info(f"LLM response received from {self.llm_model}")
+
         except Exception as e:
-            logger.warning(f"LLM call failed with {self.llm_model}: {e}")
-            
-            # Try fallback
-            if not self.llm_fallback_used:
-                logger.info(f"Attempting fallback to {LLM_FALLBACK}")
-                try:
-                    messages = [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt}
-                    ]
-                    
-                    response = self.client.chat_completion(
-                        messages=messages,
-                        model=LLM_FALLBACK,
-                        max_tokens=MAX_TOKENS,
-                        temperature=TEMPERATURE
-                    )
-                    
-                    answer = response.choices[0].message.content
-                    self.llm_model = LLM_FALLBACK
-                    self.llm_fallback_used = True
-                    logger.info("Fallback successful")
-                    
-                except Exception as e2:
-                    answer = f"Error: LLM call failed.\nPrimary model error: {str(e)}\nFallback model error: {str(e2)}"
-            else:
-                answer = f"Error: LLM call failed: {str(e)}"
-        
+            logger.error(f"LLM call failed with {self.llm_model}: {e}")
+            answer = f"Error: LLM call failed: {str(e)}"
+
         return answer, retrieved_info
 
 
@@ -503,7 +483,7 @@ def main():
             gr.Markdown("# 🇨🇭 Swiss Document RAG — powered by Apertus")
             gr.Markdown("## ❌ Configuration Error")
             gr.Markdown(f"**{str(e)}**")
-            gr.Markdown("Please set the `HF_TOKEN` environment variable with your HuggingFace API token.")
+            gr.Markdown("Please set the `HF_TOKEN` and `PUBLICAI_API_KEY` environment variables.")
         error_demo.launch()
         
     except Exception as e:
